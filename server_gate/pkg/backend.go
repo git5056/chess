@@ -7,9 +7,9 @@ import (
 	"net"
 	"time"
 
-	"github.com/gochenzl/chess/codec"
-	"github.com/gochenzl/chess/common"
-	"github.com/gochenzl/chess/util/log"
+	"github.com/chess/codec"
+	"github.com/chess/common"
+	"github.com/chess/util/log"
 )
 
 var backendChan chan codec.GateBackend

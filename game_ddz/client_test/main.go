@@ -9,12 +9,12 @@ import (
 
 	"github.com/golang/protobuf/proto"
 
-	"github.com/gochenzl/chess/codec"
-	"github.com/gochenzl/chess/common"
-	ddz_handler "github.com/gochenzl/chess/game_ddz/handler"
-	ddz_pb_client "github.com/gochenzl/chess/game_ddz/pb_client"
-	"github.com/gochenzl/chess/pb/login"
-	"github.com/gochenzl/chess/util/log"
+	"github.com/chess/codec"
+	"github.com/chess/common"
+	ddz_handler "github.com/chess/game_ddz/handler"
+	ddz_pb_client "github.com/chess/game_ddz/pb_client"
+	"github.com/chess/pb/login"
+	"github.com/chess/util/log"
 )
 
 const accountLoginUrl = "http://127.0.0.1:9090/login"

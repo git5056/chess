@@ -1,12 +1,12 @@
 package handler
 
 import (
-	"github.com/gochenzl/chess/common"
-	"github.com/gochenzl/chess/game/server"
-	"github.com/gochenzl/chess/game/session"
-	"github.com/gochenzl/chess/game_ddz/pb_client"
-	"github.com/gochenzl/chess/game_ddz/user"
-	"github.com/gochenzl/chess/util/log"
+	"github.com/chess/common"
+	"github.com/chess/game/server"
+	"github.com/chess/game/session"
+	"github.com/chess/game_ddz/pb_client"
+	"github.com/chess/game_ddz/user"
+	"github.com/chess/util/log"
 	"github.com/golang/protobuf/proto"
 )
 

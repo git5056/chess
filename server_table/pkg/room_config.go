@@ -4,8 +4,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gochenzl/chess/util/conf"
-	"github.com/gochenzl/chess/util/log"
+	"github.com/chess/util/conf"
+	"github.com/chess/util/log"
 )
 
 type roomConfig struct {

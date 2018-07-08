@@ -5,7 +5,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/gochenzl/chess/util/log"
+	"github.com/chess/util/log"
 )
 
 type Server struct {

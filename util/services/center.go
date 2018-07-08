@@ -1,8 +1,8 @@
 package services
 
 import (
-	"github.com/gochenzl/chess/pb/center"
-	"github.com/gochenzl/chess/util/rpc"
+	"github.com/chess/pb/center"
+	"github.com/chess/util/rpc"
 )
 
 func AddConnInfo(gateid uint32, connid uint32, userid uint32) bool {

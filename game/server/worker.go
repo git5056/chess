@@ -4,11 +4,11 @@ import (
 	"encoding/binary"
 	"time"
 
-	"github.com/gochenzl/chess/codec"
-	"github.com/gochenzl/chess/common"
-	"github.com/gochenzl/chess/game/session"
-	"github.com/gochenzl/chess/util/log"
-	"github.com/gochenzl/chess/util/services"
+	"github.com/chess/codec"
+	"github.com/chess/common"
+	"github.com/chess/game/session"
+	"github.com/chess/util/log"
+	"github.com/chess/util/services"
 )
 
 type handleFunc func(userid uint32, connid uint32, msgBody []byte)
