@@ -58,7 +58,7 @@ func (s *Server) SetConnHandler(f func(net.Conn)) {
 	s.connHandler = f
 }
 
-func (s *Server) Run() error {
+func (s *Server) Run(pass chan int) error {
 	s.waitGroup.Add(1)
 
 	defer s.waitGroup.Done()
@@ -69,8 +69,11 @@ func (s *Server) Run() error {
 	}
 
 	listener, err := net.ListenTCP("tcp", laddr)
+	var handstr = int(time.Now().Unix())
 	if err != nil {
 		return err
+	} else {
+		pass <- handstr
 	}
 
 	for {
