@@ -1,6 +1,10 @@
 package common
 
-import "github.com/chess/util/conf"
+import (
+	"io"
+
+	"github.com/chess/util/conf"
+)
 
 var config struct {
 	Gateid     uint32 `ini:"gateid"`
@@ -9,6 +13,30 @@ var config struct {
 	TableAddr  string `ini:"table_addr"`  // server_table address
 	RedisAddr  string `ini:"redis_addr"`  // redis address
 	UserAddr   string `ini:"user_addr"`   // user db address
+}
+
+type EConfig struct {
+	Gateid     uint32 `ini:"gateid"`
+	ListenPort int    `ini:"listen_port"`
+	CenterAddr string `ini:"center_addr"` // server_center address
+	TableAddr  string `ini:"table_addr"`  // server_table address
+	RedisAddr  string `ini:"redis_addr"`  // redis address
+	UserAddr   string `ini:"user_addr"`   // user db address
+}
+
+func GetConfig() EConfig {
+	return EConfig{
+		Gateid:     config.Gateid,
+		ListenPort: config.ListenPort,
+		CenterAddr: config.CenterAddr,
+		TableAddr:  config.TableAddr,
+		RedisAddr:  config.RedisAddr,
+		UserAddr:   config.UserAddr,
+	}
+}
+
+func InitConfigWithBytes(reader io.Reader) error {
+	return conf.LoadJson(reader, &config)
 }
 
 func InitConfig(confFile string) error {

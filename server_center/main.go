@@ -2,11 +2,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"net"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -16,6 +16,7 @@ import (
 	"github.com/chess/util/log"
 	"github.com/chess/util/rpc"
 	zkCfg "github.com/chess/util/zookeeper"
+	uuid "github.com/go.uuid"
 	"github.com/golang/protobuf/proto"
 )
 
@@ -69,13 +70,8 @@ func main() {
 	zkCfg.SetCfg(zkConn, runServer, getPort)
 	for {
 		time.Sleep(time.Second * 2)
-
 	}
 
-	for {
-		time.Sleep(time.Second * 2)
-
-	}
 	if !conn_info.Init(config.DataPath) {
 		return
 	}
@@ -102,7 +98,7 @@ func doSignal() {
 	server.Stop()
 }
 
-func handleConn(conn net.Conn) {
+func handleConn(conn net.Conn, handshakeKey []byte) {
 	log.Info("new connection from %s", conn.RemoteAddr().String())
 
 	br := bufio.NewReaderSize(conn, 1024)
@@ -110,6 +106,29 @@ func handleConn(conn net.Conn) {
 	defer conn.Close()
 	defer handler.RemoveClient(conn)
 	defer server.Done()
+
+	// handshake
+	ticker := time.NewTicker(time.Second * 5)
+	passchan := make(chan bool)
+	go func() {
+		buf := make([]byte, len(handshakeKey))
+		if readIndex, err := conn.Read(buf); err != nil || readIndex != len(handshakeKey) || bytes.Compare(buf, handshakeKey) != 0 {
+			log.Info("handshake xx")
+			passchan <- false
+			return
+		}
+		passchan <- true
+	}()
+	select {
+	case <-ticker.C:
+		log.Info("handshake overtime")
+		return
+	case isOk := <-passchan:
+		if !isOk {
+			return
+		}
+		log.Info("handshake pass")
+	}
 
 	for {
 		if server.CheckStop() {
@@ -146,11 +165,11 @@ func handleConn(conn net.Conn) {
 	}
 }
 
-func runServer(listenPort int) (string, error) {
+func runServer(listenPort int) ([]byte, error) {
 	config.ListenPort = listenPort
 	server = rpc.NewServer(config.ListenPort)
 	server.SetConnHandler(handleConn)
-	passChan := make(chan int)
+	passChan := make(chan []byte)
 	errChan := make(chan error)
 	go func() {
 		if err := server.Run(passChan); err != nil {
@@ -162,9 +181,12 @@ func runServer(listenPort int) (string, error) {
 	select {
 	case handstr := <-passChan:
 		log.Info("start suceessful")
-		return strconv.Itoa(handstr), nil
+		u1, _ := uuid.NewV4()
+		u1.UnmarshalBinary(handstr)
+		fmt.Printf("UUIDv4: %s\n", u1)
+		return handstr, nil
 	case err := <-errChan:
-		return "", err
+		return nil, err
 	}
 }
 

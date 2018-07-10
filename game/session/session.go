@@ -21,15 +21,15 @@ var sessionMu sync.RWMutex
 var sessions map[uint32]Session = make(map[uint32]Session)
 var startChan chan bool = make(chan bool)
 
-func Init(centerHostAndPort string) {
-	go centerClient(centerHostAndPort)
+func Init(centerHostAndPort string, args ...interface{}) {
+	go centerClient(centerHostAndPort, args...)
 }
 
 func CheckStart() {
 	<-startChan
 }
 
-func centerClient(hostAndPort string) {
+func centerClient(hostAndPort string, args ...interface{}) {
 	var conn net.Conn
 	var err error
 	var closeChan bool
@@ -46,6 +46,13 @@ CREATE_CONN:
 
 			time.Sleep(time.Second * 1)
 			continue
+		} else if len(args) > 0 {
+			// handshake
+			for _, num := range args {
+				conn.Write(num.([]byte))
+				break
+			}
+
 		}
 
 		if err = sendGetAllConnInfoReq(conn); err != nil {

@@ -2,12 +2,14 @@ package rpc
 
 import (
 	"bufio"
+	"fmt"
 	"net"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/chess/util/log"
+	uuid "github.com/go.uuid"
 	"github.com/golang/protobuf/proto"
 )
 
@@ -18,7 +20,7 @@ type Server struct {
 	waitGroup   *sync.WaitGroup
 	listenPort  int
 	handlers    map[string]Handler
-	connHandler func(net.Conn)
+	connHandler func(net.Conn, []byte)
 }
 
 func NewServer(port int) *Server {
@@ -54,11 +56,11 @@ func (s *Server) CheckStop() bool {
 	return false
 }
 
-func (s *Server) SetConnHandler(f func(net.Conn)) {
+func (s *Server) SetConnHandler(f func(net.Conn, []byte)) {
 	s.connHandler = f
 }
 
-func (s *Server) Run(pass chan int) error {
+func (s *Server) Run(pass chan []byte) error {
 	s.waitGroup.Add(1)
 
 	defer s.waitGroup.Done()
@@ -69,11 +71,13 @@ func (s *Server) Run(pass chan int) error {
 	}
 
 	listener, err := net.ListenTCP("tcp", laddr)
-	var handstr = int(time.Now().Unix())
+	u1, _ := uuid.NewV4()
+	fmt.Printf("UUIDv4: %s\n", u1)
+	handshakeKey := u1.Bytes()
 	if err != nil {
 		return err
 	} else {
-		pass <- handstr
+		pass <- handshakeKey
 	}
 
 	for {
@@ -97,15 +101,15 @@ func (s *Server) Run(pass chan int) error {
 
 		s.waitGroup.Add(1)
 		if s.connHandler != nil {
-			go s.connHandler(conn)
+			go s.connHandler(conn, handshakeKey)
 		} else {
-			go s.handleConn(conn)
+			go s.handleConn(conn, handshakeKey)
 		}
 
 	}
 }
 
-func (s *Server) handleConn(conn net.Conn) {
+func (s *Server) handleConn(conn net.Conn, handshakeKey []byte) {
 	log.Info("new connection from %s", conn.RemoteAddr().String())
 	br := bufio.NewReader(conn)
 	bw := bufio.NewWriter(conn)

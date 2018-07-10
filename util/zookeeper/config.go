@@ -1,13 +1,16 @@
 package zookeeper
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/chess/common"
 	"github.com/go-zookeeper/zk"
 )
 
@@ -150,13 +153,32 @@ func GetConfig(conn *zk.Conn) {
 	// fmt.Println(dataStr)
 }
 
-func SetCfg(conn *zk.Conn, deal func(int) (string, error), getPort func(except []int) int) {
+func SetCfg(conn *zk.Conn, deal func(int) ([]byte, error), getPort func(except []int) int) {
 	cfgPath := GetCfgPath()
 	fmt.Println(cfgPath)
 	var except []int
 	var exceptC = 0
 	host, _ := os.Hostname()
 	pathListenPort := cfgPath + "/listen_port"
+
+	var ips []string
+	addrs, err := net.InterfaceAddrs()
+
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	for _, address := range addrs {
+
+		// 检查ip地址判断是否回环地址
+		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				ips = append(ips, ipnet.IP.String())
+				fmt.Println(ipnet.IP.String())
+			}
+		}
+	}
 
 	bExist, _, _ := conn.Exists(pathListenPort)
 	if bExist {
@@ -168,7 +190,7 @@ func SetCfg(conn *zk.Conn, deal func(int) (string, error), getPort func(except [
 			if err != nil {
 
 			}
-			if _, err := deal(listenPort); err != nil {
+			if handstr, err := deal(listenPort); err != nil {
 				fmt.Println(err.Error())
 				except = append(except, listenPort)
 				exceptC++
@@ -181,6 +203,18 @@ func SetCfg(conn *zk.Conn, deal func(int) (string, error), getPort func(except [
 					fmt.Println(err.Error())
 				}
 			} else {
+				prvdInfo := common.ServiceCenterProviderInfo{
+					WorkSpace: os.Args[0],
+					StartTime: time.Now().Unix(),
+					IP:        ips,
+					Port:      int32(listenPort),
+					HandShake: handstr,
+				}
+				prvdZNData, _ := json.Marshal(prvdInfo)
+				_, err := conn.Set(pathProvider, prvdZNData, 0)
+				if err != nil {
+					fmt.Println(err.Error())
+				}
 				fmt.Println("successful")
 				return
 				// break
@@ -228,7 +262,20 @@ func SetCfg(conn *zk.Conn, deal func(int) (string, error), getPort func(except [
 				nop()
 				fmt.Println(handstr)
 				fmt.Println(pathListenPort)
-				err := SaveZNode(conn, pathListenPort, 0, []byte(strconv.Itoa(listenPort)), 0)
+
+				prvdInfo := common.ServiceCenterProviderInfo{
+					WorkSpace: os.Args[0],
+					StartTime: time.Now().Unix(),
+					IP:        ips,
+					Port:      int32(listenPort),
+					HandShake: handstr,
+				}
+				prvdZNData, _ := json.Marshal(prvdInfo)
+				_, err := conn.Set(pathProvider, prvdZNData, 0)
+				if err != nil {
+					fmt.Println(err.Error())
+				}
+				err = SaveZNode(conn, pathListenPort, 0, []byte(strconv.Itoa(listenPort)), 0)
 				if err != nil {
 					fmt.Println(err.Error())
 				}
