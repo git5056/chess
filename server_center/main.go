@@ -117,6 +117,11 @@ func handleConn(conn net.Conn, handshakeKey []byte) {
 			passchan <- false
 			return
 		}
+		if _, err := conn.Write([]byte("ok")); err != nil {
+			log.Info("handshake xx")
+			passchan <- false
+			return
+		}
 		passchan <- true
 	}()
 	select {

@@ -59,6 +59,31 @@ func CreateZNode(conn *zk.Conn, path string, flag int32, data []byte) bool {
 	return true
 }
 
+func CreateZNodeW(conn *zk.Conn, path string, flag int32, data []byte) (bool, error) {
+	splitPath := strings.Split(strings.TrimLeft(path, "/"), "/")
+	path = ""
+	loopC := len(splitPath)
+	for idx, p := range splitPath {
+		var _flag int32 = 0
+		var _data []byte = []byte{}
+		if idx == loopC-1 {
+			_flag = flag
+			_data = data
+		}
+		path = path + "/" + p
+		_, err := conn.Create(path, _data, _flag, acls)
+		if err != nil {
+			if err.Error() != "zk: node already exists" {
+				fmt.Println(err)
+				return false, err
+			} else if idx == loopC-1 {
+				return false, err
+			}
+		}
+	}
+	return true, nil
+}
+
 func createEmptyNode(conn *zk.Conn, path string, flag int32) (bool, error) {
 	_, err_create := conn.Create(path, []byte(""), flag, acls)
 	if err_create != nil {
@@ -186,7 +211,7 @@ func SetCfg(conn *zk.Conn, deal func(int) ([]byte, error), getPort func(except [
 		if len(data) > 0 {
 			listenPort, _ := strconv.Atoi(string(data))
 			pathProvider := GetProdPath(listenPort)
-			_, err := CreateEmptyNodeW(conn, pathProvider, zk.FlagEphemeral)
+			_, err := CreateEmptyNodeW(conn, "/chess/lock"+pathProvider, zk.FlagEphemeral)
 			if err != nil {
 
 			}
@@ -211,7 +236,9 @@ func SetCfg(conn *zk.Conn, deal func(int) ([]byte, error), getPort func(except [
 					HandShake: handstr,
 				}
 				prvdZNData, _ := json.Marshal(prvdInfo)
-				_, err := conn.Set(pathProvider, prvdZNData, 0)
+
+				_, err := CreateZNodeW(conn, pathProvider+"#"+time.Now().String(), zk.FlagEphemeral, prvdZNData)
+				// _, err := conn.Set(pathProvider, prvdZNData, 0)
 				if err != nil {
 					fmt.Println(err.Error())
 				}
@@ -242,7 +269,7 @@ func SetCfg(conn *zk.Conn, deal func(int) ([]byte, error), getPort func(except [
 		nop()
 		listenPort := getPort(except)
 		pathProvider := GetProdPath(listenPort)
-		_, err := CreateEmptyNodeW(conn, pathProvider, zk.FlagEphemeral)
+		_, err := CreateEmptyNodeW(conn, "/chess/lock"+pathProvider, zk.FlagEphemeral)
 		if err != nil {
 			fmt.Println(err.Error())
 		} else {
@@ -271,7 +298,8 @@ func SetCfg(conn *zk.Conn, deal func(int) ([]byte, error), getPort func(except [
 					HandShake: handstr,
 				}
 				prvdZNData, _ := json.Marshal(prvdInfo)
-				_, err := conn.Set(pathProvider, prvdZNData, 0)
+				_, err := CreateZNodeW(conn, pathProvider+"#"+time.Now().String(), zk.FlagEphemeral, prvdZNData)
+				// _, err := conn.Set(pathProvider, prvdZNData, 0)
 				if err != nil {
 					fmt.Println(err.Error())
 				}

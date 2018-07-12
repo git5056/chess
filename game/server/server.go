@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"net"
 	"strconv"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/chess/game/session"
 	"github.com/chess/util/buf_pool"
 	"github.com/chess/util/log"
+	uuid "github.com/go.uuid"
 )
 
 type respInfo struct {
@@ -24,22 +26,48 @@ type respInfo struct {
 var theConn net.Conn
 var theConnMu sync.Mutex
 var respQ chan respInfo = make(chan respInfo, 10000)
+var first bool = true
 
-func Run(port int) error {
-	for i := 0; i < 100; i++ {
-		go workLoop()
-		workerNum++
+func Run(port int, cbs ...interface{}) error {
+	if first {
+		for i := 0; i < 100; i++ {
+			go workLoop()
+			workerNum++
+		}
+
+		session.CheckStart()
+
+		go monitorWorker()
+		go writingLoop()
+		go pushGateQueue()
+		first = false
 	}
 
-	session.CheckStart()
-
-	go monitorWorker()
-	go writingLoop()
-	go pushGateQueue()
+	// 握手信息
+	u1, _ := uuid.NewV4()
+	fmt.Printf("UUIDv4: %s\n", u1)
+	handshakeKey := u1.Bytes()
 
 	listener, err := net.Listen("tcp", ":"+strconv.Itoa(port))
 	if err != nil {
 		return err
+	}
+	var retV interface{} = nil
+	var loopC = 0
+	for _, cb := range cbs {
+		callback, ok := cb.(func(...interface{}) (interface{}, error))
+		if ok {
+			loopC++
+			if loopC-1 == 0 {
+				if retV, err = callback(listener, port, handshakeKey); err != nil {
+					return err
+				}
+			} else {
+				if retV, err = callback(retV, listener, port, handshakeKey); err != nil {
+					return err
+				}
+			}
+		}
 	}
 
 	log.Info("listen on port %d", port)
@@ -52,7 +80,7 @@ func Run(port int) error {
 		}
 
 		setTheConn(conn)
-		go handleConn(conn)
+		go handleConn(conn, handshakeKey)
 	}
 }
 
@@ -84,10 +112,15 @@ func LoginFail(connid uint32, userid uint32, msgid uint16, result uint16) {
 	}
 }
 
-func handleConn(conn net.Conn) {
+func handleConn(conn net.Conn, handshakeKey []byte) {
 	defer conn.Close()
 
+	if !handshake(conn, handshakeKey) {
+		conn.Close()
+		return
+	}
 	br := bufio.NewReaderSize(conn, 10*1024*1024)
+
 	for {
 		var gb codec.GateBackend
 		if err := gb.Decode(br); err != nil {
@@ -98,6 +131,39 @@ func handleConn(conn net.Conn) {
 		pushRequest(gb)
 
 	}
+}
+
+func handshake(conn net.Conn, handshakeKey []byte) bool {
+
+	ticker := time.NewTicker(time.Second * 5)
+	passchan := make(chan bool)
+	go func() {
+		buf := make([]byte, len(handshakeKey))
+		if readIndex, err := conn.Read(buf); err != nil || readIndex != len(handshakeKey) || bytes.Compare(buf, handshakeKey) != 0 {
+			log.Info("handshake xx")
+			passchan <- false
+			return
+		}
+		if _, err := conn.Write([]byte("ok")); err != nil {
+			log.Info("handshake xx")
+			passchan <- false
+			return
+		}
+		passchan <- true
+	}()
+	select {
+	case <-ticker.C:
+		log.Info("handshake overtime")
+		conn.Write(handshakeKey)
+		return false
+	case isOk := <-passchan:
+		if !isOk {
+			conn.Write(handshakeKey)
+			return false
+		}
+		log.Info("handshake pass")
+	}
+	return true
 }
 
 func writingLoop() {
