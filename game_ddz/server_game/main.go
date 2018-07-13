@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -37,6 +38,8 @@ type CfgCenter struct {
 	prvdZkNode string
 	zkConn     *zk.Conn
 	lockPrefix string
+	lockPath   string
+	lockIdx    int
 }
 
 var zkConnExtern *zk.Conn
@@ -45,21 +48,31 @@ func (cc *CfgCenter) Start() {
 	// cc.zkServer
 }
 
-func (cc *CfgCenter) Init() {
+func (cc *CfgCenter) Init() int {
 	conn := cc.zkConn
 	acl, _, _ := conn.GetACL("/chess")
 	// var except []int
 	// var exceptC = 0
 	execPath := os.Args[0]
 	host, _ := os.Hostname()
-	lockPrefix := "/chess/lo2ck/" + cc.lockPrefix + "config_"
+	lockPrefix := "/chess/lock/" + cc.lockPrefix + "config_"
 	lockPath := lockPrefix + strings.ToUpper(host+"_"+execPath)
 
-	// if bExist, _, _ := conn.Exists(lockPrefix); !bExist {
-	// 	zkCfg.CreateEmptyNodeW(conn, lockPrefix, zk.FlagEphemeral)
-	// }
+	var existStr string = ""
+	chds, _, _ := conn.Children("/chess/lock")
+
+	for _, chd := range chds {
+		if strings.HasPrefix(chd, cc.lockPrefix+"config_"+strings.ToUpper(host+"_"+execPath)) {
+			existStr = existStr + chd[strings.LastIndex(chd, "_")+1:] + ";"
+		}
+	}
+
 	var loopC int = 0
 	for {
+		if strings.Contains(existStr, strconv.Itoa(loopC)) {
+			loopC++
+			continue
+		}
 		var lp string = lockPath + "_" + strconv.Itoa(loopC)
 		fmt.Println(lp)
 		_, err := conn.Create(lp, []byte(""), zk.FlagEphemeral, acl)
@@ -71,18 +84,20 @@ func (cc *CfgCenter) Init() {
 			zkCfg.CreateEmptyNodeW(conn, lockPrefix, zk.FlagEphemeral)
 			continue
 		}
-		break
+		cc.lockIdx = loopC
+		cc.lockPath = lp
+		return loopC
 	}
-	for {
-		time.Sleep(time.Second)
-	}
-
 }
 
 func (cc *CfgCenter) Reload() {
 	conn := cc.zkConn
+	execPath := os.Args[0]
 	host, _ := os.Hostname()
-	bExist, _, ech, err := conn.ExistsW("/chess/config/game/" + host + "_" + "1234")
+	var exceptUsed []int
+	cfgPath := "/chess/config/game/" + strings.ToUpper(host+"_"+execPath) + "_" + strconv.Itoa(cc.lockIdx)
+	fmt.Println(cfgPath)
+	bExist, _, ech, err := conn.ExistsW(cfgPath)
 	bError := false
 	if err != nil {
 		fmt.Println("error:", err)
@@ -90,7 +105,7 @@ func (cc *CfgCenter) Reload() {
 	}
 	var cfgStat *zk.Stat
 	if bExist {
-		cfgData, stat, echn, err := conn.GetW("/chess/config/game/a")
+		cfgData, stat, echn, err := conn.GetW(cfgPath)
 		if err != nil {
 			return
 		}
@@ -101,24 +116,81 @@ func (cc *CfgCenter) Reload() {
 			bError = true
 			goto part2
 		}
+		//go w(notice)
+		err = cc.RunGame(nil)
+		if err != nil {
+			log.Error("prase config fail:%s", err.Error())
+			bError = true
+			goto part2
+		}
+		// server.Run()
+
 		fmt.Println(common.GetConfig())
-		// _, _, echn, err = conn.ChildrenW("/chess/config/game/a")
 		ech = echn
 	}
 part2:
 	if !bExist || bError {
-		cfgData, _ := json.Marshal(common.GetConfig())
-		if !bExist {
-			_, err = conn.Create("/chess/config/game/a", cfgData, 0, zk.WorldACL(zk.PermAll))
-		} else {
-			_, err = conn.Set("/chess/config/game/a", cfgData, cfgStat.Version)
+
+		// 获取所有被占用端口
+		var except []int = exceptUsed
+		// var exceptC = 0
+		childrenPaths, _, _ := conn.Children("/chess/config/game")
+		for _, p := range childrenPaths {
+			if strings.HasPrefix(p, strings.ToUpper(host)) {
+				d, _, err := conn.Get("/chess/config/game/" + p)
+				if err == nil {
+					config := &common.EConfig{}
+					err := json.Unmarshal(d, config)
+					if err == nil {
+						except = append(except, config.ListenPort)
+					}
+				}
+			}
 		}
+
+		listenPort := getPort(except)
+		ac := common.GetConfig()
+		ac.ListenPort = listenPort
+		cfgData, _ := json.Marshal(ac)
+		err = common.InitConfigWithBytes(bytes.NewReader(cfgData))
 		if err != nil {
-			log.Error("run server fail:%s", err.Error())
+			log.Error("prase config fail:%s", err.Error())
+			os.Exit(1)
+		}
+		notice := make(chan int, 5)
+		go w(notice, func() {
+			dd := 2
+			dd++
+			if !bExist {
+				_, err = conn.Create(cfgPath, cfgData, 0, zk.WorldACL(zk.PermAll))
+			} else {
+				_, err = conn.Set(cfgPath, cfgData, cfgStat.Version)
+			}
+			if err != nil {
+				log.Error("run server fail:%s", err.Error())
+			}
+		})
+		err = cc.RunGame(notice)
+		fmt.Println(reflect.TypeOf(err))
+		if err != nil && strings.Contains(err.Error(), "Only one usage of") {
+			// 端口占用
+			exceptUsed = append(exceptUsed, ac.ListenPort)
+			bError = true
+			goto part2
+		} else if err != nil {
+			log.Error("listen %d fail:%s", ac.ListenPort, err.Error())
+			os.Exit(1)
 		}
 	}
-	go cc.RunGame()
+
 	go cc.watch(ech)
+}
+
+func w(ch chan int, cb func()) {
+	num := <-ch
+	if num == 1 {
+		cb()
+	}
 }
 
 func (cc *CfgCenter) Stop() {
@@ -164,7 +236,7 @@ func (cc *CfgCenter) RunService() {
 	}
 }
 
-func (cc *CfgCenter) RunGame() {
+func (cc *CfgCenter) RunGame(notice chan int) error {
 	conn := cc.zkConn
 	host, _ := os.Hostname()
 	lockPrefix := cc.lockPrefix + host + "_"
@@ -195,18 +267,23 @@ func (cc *CfgCenter) RunGame() {
 	}
 
 	zkCfg.SetLock(conn, lockPath)
-	for {
-		err := server.Run(common.GetListenPort(), func(args ...interface{}) (interface{}, error) {
-			prvdInfo.HandShake = args[2].([]byte)
-			prvdZNData, _ := json.Marshal(prvdInfo)
-			return zkCfg.CreateZNodeW(conn, pathProvider+"#"+time.Now().String(), zk.FlagEphemeral, prvdZNData)
-		})
-		if err != nil {
-			fmt.Println(err)
-			// 判断是具体错误并相应处理
+	err = server.Run(common.GetListenPort(), func(args ...interface{}) (interface{}, error) {
+		prvdInfo.HandShake = args[2].([]byte)
+		prvdZNData, _ := json.Marshal(prvdInfo)
+		if notice != nil {
+			notice <- 1
 		}
+		return zkCfg.CreateZNodeW(conn, pathProvider+"#"+time.Now().String(), zk.FlagEphemeral, prvdZNData)
+	})
+	if err != nil {
+		if notice != nil {
+			notice <- 0
+		}
+		conn.Delete(lockPath, 0)
+		return err
 	}
 	conn.Delete(lockPath, 0)
+	return nil
 }
 
 func (cc *CfgCenter) watch(ech <-chan zk.Event) {
